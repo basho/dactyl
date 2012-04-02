@@ -18,7 +18,9 @@
 -export([f/2,
          to_s/1,
          render_file/2,
+         render_file/3,
          render/2,
+         render/3,
          compile_file/1,
          compile/1
         ]).
@@ -37,8 +39,18 @@ to_s (X) when is_atom(X) -> atom_to_list(X);
 to_s (X) -> f("~p",[X]).
 
 %% compile a source file, build a template, then render it
-render_file (Filename,Temp) ->
-    render(compile_file(Filename),Temp).
+render_file (Filename,Args) ->
+    case compile_file(Filename) of
+        {ok,Template} -> render(Template,Args);
+        Else -> Else
+    end.
+
+%% compile a source file, build a template, then render it with callbacks
+render_file (Mod,Filename,Args) ->
+    case compile_file(Filename) of
+        {ok,Template} -> render(Mod,Template,Args);
+        Else -> Else
+    end.
 
 %% render from a template
 render (#dactyl_template{segs=Segs},Args) ->
@@ -53,22 +65,44 @@ render (Binary,Args) when is_binary(Binary) ->
         Else -> Else
     end.
 
+%% render from a template using module callbacks
+render (Mod,#dactyl_template{segs=Segs},Args) ->
+    lists:flatten(lists:map(fun (Op) -> explode(Op,{Mod,Args}) end,Segs));
+
+%% render with module callbacks
+render (Mod,String,Args) when is_list(String) ->
+    render(Mod,list_to_binary(String),Args);
+render (Mod,Binary,Args) when is_binary(Binary) ->
+    case compile(Binary) of
+        {ok,Template} -> render(Mod,Template,Args);
+        Else -> Else
+    end.
+
 %% converts a template operation into a string given a proplist of args
 explode ({literal,[String]},_Args) ->
     to_s(String);
 explode ({basic,[Param]},Args) ->
-    to_s(proplists:get_value(Param,Args));
+    to_s(lookup(Param,Args));
 explode ({either,[Param,True,False]},Args) ->
-    case proplists:get_value(Param,Args) of
+    case lookup(Param,Args) of
         true -> render(True,Args);
         _ -> render(False,Args)
     end;
 explode ({list,[Param,Template]},Args) ->
-    List=proplists:get_value(Param,Args),
+    List=lookup(Param,Args),
     [render(Template,Props) || Props <- List];
 explode ({format,[Param,Fmt]},Args) ->
-    List=proplists:get_value(Param,Args),
+    List=lookup(Param,Args),
     io_lib:format(Fmt,List).
+
+%% given a parameter, modules, and arglist, call a function or lookup in list
+lookup (Param,{Mod,Args}) ->
+    case lists:member({Param,1},Mod:module_info(exports)) of
+        false -> lookup(Param,Args);
+        true -> Mod:Param(Args)
+    end;
+lookup (Param,Args) ->
+    proplists:get_value(Param,Args).
 
 %% build a #dactyl_template{} from a source file
 compile_file (Filename) ->
