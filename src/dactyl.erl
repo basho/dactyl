@@ -88,6 +88,9 @@ explode ({either,[Param,True,False]},Args) ->
         true -> render(True,Args);
         _ -> render(False,Args)
     end;
+explode ({list,[Param,Template]},{Mod,_}=ModArgs) ->
+    List=lookup(Param,ModArgs),
+    [render(Mod,Template,Props) || Props <- List];
 explode ({list,[Param,Template]},Args) ->
     List=lookup(Param,Args),
     [render(Template,Props) || Props <- List];
